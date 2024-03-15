@@ -8,7 +8,7 @@ token = BertTokenizer.from_pretrained('google-bert/bert-base-chinese')  # 加载
 # 定义计算设备，默认使用CPU进行计算
 device = 'cpu'
 if torch.cuda.is_available():
-    device = 'CUDA'
+    device = 'cuda'
 
 
 class Dataset(torch.utils.data.Dataset):
@@ -34,6 +34,7 @@ class Dataset(torch.utils.data.Dataset):
         label = self.dataset[i]['label']
         return text, label
 
+
 # 定义数据整理函数
 def collate_fn(data):
     sents = [i[0] for i in data]
@@ -58,6 +59,7 @@ def collate_fn(data):
     labels = torch.LongTensor(labels).to(device)  #把数据移动到计算设备上
     return input_ids, attention_mask, token_type_ids, labels
 
+
 # 定义数据集加载器
 dataset = Dataset('train')
 loader = torch.utils.data.DataLoader(
@@ -76,6 +78,7 @@ for param in pretrained.parameters():
 # 设定计算设备
 pretrained.to(device)
 
+
 # 定义下游任务模型
 class Model(torch.nn.Module):
     def __init__(self):
@@ -85,14 +88,17 @@ class Model(torch.nn.Module):
     def forward(self, input_ids, attention_mask, token_type_ids):
         with torch.no_grad():
             out = pretrained(input_ids=input_ids, attention_mask = attention_mask, token_type_ids = token_type_ids)
-            # 对抽取的特征只取第1个字的结果做分类即可
-            out = self.fc(out.last_hidden_state[:, 0])
-            out = out.softmax(dim=1)
-            return out
-        
+        # 对抽取的特征只取第1个字的结果做分类即可
+        out = self.fc(out.last_hidden_state[:, 0])
+        out = out.softmax(dim=1)
+        return out
+
+
+# 定义模型
 model = Model()
 # 设定计算设备
 model.to(device)
+
 
 # 模型训练
 def train():
@@ -115,8 +121,6 @@ def train():
                     token_type_ids=token_type_ids)
         # 计算loss并使用梯度下降法优化模型参数
         loss = criterion(out, labels)
-        print(loss)
-        loss.requires_grad_(True)
         loss.backward()  # 误差反向传播
         optimizer.step()
         scheduler.step()
@@ -127,6 +131,38 @@ def train():
             accuracy = (out == labels).sum().item() / len(labels)
             lr = optimizer.state_dict()['param_groups'][0]['lr']
             print(i, loss.item(), lr, accuracy)
+    # 保保存整个模型
+    torch.save(model, './model/SentiCorp.pt')
+
+
+def test():
+    # 定义测试数据集加载器
+    loader_test = torch.utils.data.DataLoader(dataset=Dataset('test'),
+                                              batch_size=32,
+                                              collate_fn=collate_fn,
+                                              shuffle=True,
+                                              drop_last=True)
+    model = torch.load('./model/SentiCorp.pt', map_location=torch.device('cuda'))
+    # 将下游任务模型切换到运行模式
+    model.eval()
+    correct = 0  # 测试正确的数量
+    total = 0  # 总共的数量
+    # 按批次遍历测试集中的数据
+    for i, (input_ids, attention_mask, token_type_ids, labels) in enumerate(loader_test):
+        # 计算5个批次即可，不用全部计算
+        if i == 5:
+            break
+        print("This is {}th batch".format(i))
+        # 计算
+        with torch.no_grad():
+            out = model(input_ids=input_ids, attention_mask=attention_mask,
+                        token_type_ids=token_type_ids)
+        # 统计正确率
+        out = out.argmax(dim=1)
+        correct += (out == labels).sum().item()
+        total += len(labels)
+    print(correct / total)
+
 
 if __name__ == "__main__":
-    train()
+    test()

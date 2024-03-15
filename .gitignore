@@ -7,6 +7,9 @@
 # Virtualenv
 venv/
 
+# torch_model
+*.pt
+
 # Build
 build/
 dist/
